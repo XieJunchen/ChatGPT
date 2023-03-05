@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>待办任务列表</title>
+    <script src="https://unpkg.com/vue@next"></script>
+    <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css" />
+    <script src="https://unpkg.com/element-plus"></script>
+    <!-- <script src="//unpkg.com/@element-plus/icons-vuse"></script> -->
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <!-- <script src="https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.min.js"></script> -->
+    <script src="https://cdn.jsdelivr.net/npm/showdown@1.9.1/dist/showdown.min.js"></script>
+
+    <!-- <script src="./storage.js"></script> -->
+    <script>
+        var storage={
+            set(key,value){
+                localStorage.setItem(key,JSON.stringify(value));
+
+            },
+            get(key){
+                return JSON.parse(localStorage.getItem(key));
+
+            },
+            remove(key){
+                localStorage.removeItem(key);
+            }
+        };
+        var converter = new showdown.Converter();
+    </script>
+    <style>
+        .el-table .display-row {
+            display: none;
+        }
+
+        /* .el-table:deep(.el-table__header) col[name=gutter] {
+            display: table-cell !important;
+        } */
+    </style>
+    <style>
+            .text {
+              font-size: 14px;
+            }
+          
+            .item {
+              margin-bottom: 18px;
+            }
+          
+            .clearfix:before,
+            .clearfix:after {
+              display: table;
+              content: "";
+            }
+            .clearfix:after {
+              clear: both
+            }
+          
+            .box-card {
+              width: 100%;
+              margin: 10px 20px 10px 20px ;
+            }
+            pre {
+                background-color: #111111;
+                border: 1px solid #ddd;
+                color: aliceblue;
+                padding: 10px;
+            }
+
+            code {
+                font-family: Consolas, monospace;
+            }
+          </style>
+</head>
+
+<body>
+<div id="Application">
+    
+    <!-- 输入框元素，用来新建待办任务 -->
+    <el-form :inline="true" :style="styleForm">
+        <el-row>
+            <el-col :span="6">
+                <el-form-item label="模型">
+                    <el-select v-model="model" class="m-2" placeholder="Select" label="Instant delivery">
+                        <el-option
+                          v-for="item in options"
+                          :key="item.value"
+                          :label="item.label"
+                          :value="item.value"
+                        />
+                    </el-select>
+                </el-form-item>
+                
+            </el-col>
+            <el-col :span="16">
+                <el-form-item label="">
+                    <el-input v-model="taskText" class="w-50 m-2" placeholder="请输入..." autofocus="true"
+                              @keydown="keyclick($event)" style="width:520px" />
+                </el-form-item>
+                <el-form-item>
+                    <el-button type="primary" @click="addTask">发送</el-button>
+                </el-form-item>
+            </el-col>
+        </el-row>
+        
+    </el-form>
+    
+    <template v-if="todos.length >= 1">
+        <el-row>
+            <el-col :span="23">
+                <el-card class="box-card" v-for="item in todos" :key="index"
+                    :cell-style="{'text-align':'center'}">
+                        <div slot="header" class="clearfix">
+                            <span>{{'我:'+ item.taskText }}</span>
+                            <el-button style="float: right; padding: 3px 0" type="text" @click="remove(index)">删除</el-button>
+                        </div>
+                        <div :id="item.id" v-html="item.anwser"></div>
+                </el-card>
+            </el-col>
+        </el-row>
+        
+        <!-- :row-class-name="tableClass" -->
+    </template>
+
+</div>
+<script>
+        const App = {
+            data() {
+                return {
+                    // 待办任务列表数据 id: index, taskText: this.taskText, anwser:'等我操作....',checked: false, reMove: '删除' 
+                    todos: [],
+                    // 当前输入的待办任务
+                    model:'gpt-3.5-turbo',
+                    taskText: "",
+                    checked: '',
+                    // 选中数组
+                    message: '',
+                    id: 0,
+                    options : [
+                        {
+                            value: 'gpt-3.5-turbo',
+                            label: 'chatGPT',
+                        },
+                        {
+                            value: 'gpt-3.5-turbo-0301',
+                            label: 'chatGPT-0301',
+                        },
+                        {
+                            value: 'text-davinci-003',
+                            label: 'GPT-3',
+                        },
+                        
+                        {
+                            value: 'text-moderation-playground',
+                            label: 'picture model',
+                        },
+                        {
+                            value: 'code-davinci-002',
+                            label: 'code model',
+                        },
+                        {
+                            value: 'text-chat-davinci-002-20221122',
+                            label: 'chat model',
+                        },
+                    ],
+                    //选中的记录数量
+                    selectedNum: 0,
+                    markdown: '# This is a heading\n\nThis is some **bold** text.',
+                    html: ''
+                }
+            },
+            computed: {
+                styleForm: {
+                    get() {
+                        return `width:1000px;margin:20px auto;text-align:center;cursor: pointer;`
+                    }
+                },
+                headerStyle: {
+                    get() {
+                        return ``
+                    }
+                }
+            },
+            methods: {
+
+                // https://api.openai.com/v1/completions
+                sendMsg(msg,index,todos){
+                    
+                    if(this.model==="gpt-3.5-turbo-0301" || this.model==="gpt-3.5-turbo"){
+                        axios.post('https://api.openai.com/v1/chat/completions', {
+                            model: this.model, 
+                            messages : [{
+                                role: "user", 
+                                content: msg
+                            }]
+                        },{
+                            headers:{
+                                "Content-Type": "application/json",
+                                "Authorization": "Bearer sess-O7wE8lCApsAF6lgsl7JiG2pm4HtfByLrvejbAn3L"
+                            }
+                        })
+                        .then(function (response) {
+                            var anwser = response.data.choices[0].message.content;
+                            todos[index].anwser = this.converter.makeHtml(anwser);
+                            console.log(response);
+                        })
+                        .catch(function (error) {
+                            console.log(error);
+                            todos[index].anwser = '出错了。。。。。';
+                        })
+                    }else{
+                        // api.openai.com/v1/chat/completions
+                        axios.post('https://api.openai.com/v1/completions', {
+                            model: this.model,        // 参数 firstName
+                            prompt: msg,    // 参数 lastName
+                            temperature: 0,
+                            max_tokens: 4000,
+                            top_p: 1,
+                            frequency_penalty: 0.0,
+                            presence_penalty: 0.0
+                        },{
+                            headers:{
+                                "Content-Type": "application/json",
+                                "Authorization": "Bearer sess-O7wE8lCApsAF6lgsl7JiG2pm4HtfByLrvejbAn3L"
+                            }
+                        })
+                        .then(function (response) {
+                            var anwser = response.data.choices[0].text;
+                            todos[index].anwser = anwser;
+                            console.log(response);
+                        })
+                        .catch(function (error) {
+                            console.log(error);
+                            todos[index].anwser = '出错了。。。。。';
+                        });
+                    }
+                },  
+                // 添加一条待办任务
+                addTask() {
+                    // 判断下输入框是否为空
+                    if (this.taskText.length == 0) {
+                        this.$message.warning('请输入...')
+                        //alert("为本为空")
+                        return
+                    }
+                    if(this.todos.length>0){
+                        this.id = this.todos[this.todos.length-1].id+1;
+                    }
+                    this.todos.push({ id: this.id, taskText: this.taskText, anwser:'等我操作....',checked: false });
+                    this.sendMsg(this.taskText,this.todos.length-1,this.todos);
+                    this.taskText = "";
+                    storage.set('todos', this.todos);
+                },
+                
+                // 删除一条待办任务
+                remove(index) {
+                    this.todos.splice(index, 1)
+                    storage.set('todos', this.todos);
+                },
+                keyclick(e) {
+                    console.log(e);
+                    if (e.keyCode == 13) {
+                        this.todos.push({ taskText: this.taskText, checked: false, reMove: '删除' })
+                        storage.set('todos', this.todos);
+                    }
+                },
+                savetodos(checked) {
+                    storage.set('todos', this.todos);
+                    console.log(checked)
+                },
+                tableClass({ row, rowIndex }) {
+                    if (row.checked) {
+                        return 'display-row';
+                    }
+                    return '';
+                },
+                // 多选框选中数据
+                handleSelectionChange(selection) {
+                    //获取所有选中项的某属性的值
+                    this.titleList = selection.map(item => item.checked)
+                    //获取所有选中项数组的长度
+                    this.selectedNum = selection.length
+                    console.log(this.titleList,this.selectedNum)
+                },
+            },
+            mounted() {
+                /*生命周期函数，vue页面刷新就会触发的方法，获取缓存数据*/
+                var todos = storage.get('todos');
+                if (todos) {
+                    this.todos = todos;
+                }            
+            }
+        }
+        Vue.createApp(App).use(ElementPlus).mount("#Application")
+    </script>
+</body>
+
+</html>
+<!-- vue+elementplus实现待办事项的持久化存储 -->
